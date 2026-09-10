@@ -8,18 +8,18 @@ import streamlit.components.v1 as components
 
 # ページ全体の基本設定
 st.set_page_config(
-    page_title="ゴルフクラブ 重量・長さフロー分析ツール",
+    page_title="ゴルフクラブ スペック＆重心フロー分析ツール",
     page_icon="⛳",
     layout="wide",
 )
 
-st.title("⛳ ゴルフクラブ 重量・長さフロー管理ツール")
+st.title("⛳ ゴルフクラブ スペック＆全体重心フロー管理ツール")
 st.write(
-    "1Wと特定の番手（5I / 9I / PW / 最短クラブ）の2点を通る基準線を引いて、セッティング全体のフローバランスを検証します。"
+    "1W〜ウェッジまでの長さ・総重量・全体の重心位置（グリップエンドからの釣り合い点）を入力し、重量および重心フローの相関関係を可視化します。"
 )
 
 # -----------------------------------------------------------------------------
-# 1. 初期セッティングデータ
+# 1. 初期セッティングデータ（1W〜56°：全体重心長を追加）
 # -----------------------------------------------------------------------------
 default_data = [
     {
@@ -145,10 +145,9 @@ default_data = [
 ]
 
 # -----------------------------------------------------------------------------
-# 2. サイドバーでの操作・設定
+# 2. サイドバーでのファイル操作
 # -----------------------------------------------------------------------------
-st.sidebar.header("📂 データ操作 / 設定")
-
+st.sidebar.header("📂 データ操作 / 管理")
 uploaded_file = st.sidebar.file_uploader(
     "CSVファイルを読み込む", type=["csv"]
 )
@@ -158,17 +157,16 @@ if uploaded_file is not None:
 else:
     df_input = pd.DataFrame(default_data)
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("🎯 基準線の対象番手選択")
-st.sidebar.caption("1W固定。もう一つの基準となるポイントを選択してください。")
-
 # -----------------------------------------------------------------------------
-# 3. 画面レイアウト（GUI入力欄 & グラフ）
+# 3. 画面レイアウト（GUI入力欄 & 複数グラフ表示）
 # -----------------------------------------------------------------------------
 col_editor, col_chart = st.columns([1, 1.2])
 
 with col_editor:
     st.subheader("📋 スペック入力・編集")
+    st.info(
+        "💡 「全体重心長(mm)」（グリップエンドからの釣り合い点）を入力・更新できます。"
+    )
 
     edited_df = st.data_editor(
         df_input,
@@ -193,137 +191,174 @@ with col_editor:
         use_container_width=True,
     )
 
+    # CSV保存機能
     csv_data = edited_df.to_csv(index=False).encode("utf-8")
     st.download_button(
         label="💾 現在のセッティングをCSVで保存",
         data=csv_data,
-        file_name="golf_club_flow_data.csv",
+        file_name="golf_club_full_cg_specs.csv",
         mime="text/csv",
     )
 
+    # LocalStorage保存機能
     if st.button("🌐 ブラウザ（LocalStorage）に保存"):
         json_str = edited_df.to_json(orient="records")
         save_js = f"""
         <script>
-            localStorage.setItem('golf_club_flow_2p', '{json_str}');
-            alert('データをブラウザに保存しました！');
+            localStorage.setItem('golf_club_cg_flow_v2', '{json_str}');
+            alert('全体重心長含むデータをブラウザに保存しました！');
         </script>
         """
         components.html(save_js, height=0)
 
 with col_chart:
-    st.subheader("📊 重量フロー分析グラフ")
+    st.subheader("📊 多次元スペック分析グラフ")
 
     if not edited_df.empty:
-        plot_df = edited_df.dropna(
-            subset=["長さ(inch)", "総重量(g)"]
-        ).copy()
+        plot_df = edited_df.dropna(subset=["長さ(inch)", "総重量(g)"])
 
-        # 1Wと候補番手（5I, 9I, PW, 一番短いクラブ）の検出
-        w1_row = plot_df[plot_df["番手"] == "1W"]
-
-        # 一番短いクラブ（長さの最小値を持つ行）を判定
-        shortest_idx = plot_df["長さ(inch)"].idxmin()
-        shortest_club_name = plot_df.loc[shortest_idx, "番手"]
-
-        # 選択肢のリストを作成
-        target_options = []
-        if "5I" in plot_df["番手"].values:
-            target_options.append("5I")
-        if "9I" in plot_df["番手"].values:
-            target_options.append("9I")
-        if "PW" in plot_df["番手"].values:
-            target_options.append("PW")
-
-        # 「一番短いクラブ」ラベルの追加（重複防止）
-        shortest_label = f"一番短いクラブ ({shortest_club_name})"
-        if shortest_label not in target_options:
-            target_options.append(shortest_label)
-
-        # サイドバーで対象を選択
-        selected_target_label = st.sidebar.radio(
-            "1Wと繋ぐ選択肢:", target_options
+        # タブによるグラフ切り替え（全体重心長を追加）
+        tab1, tab2, tab3, tab4 = st.tabs(
+            [
+                "⚖️ 総重量フロー",
+                "📐 全体重心長フロー",
+                "🎯 CG垂線交点長",
+                "🪵 シャフト重量",
+            ]
         )
 
-        # 選択された実際の番手名を特定
-        if "一番短いクラブ" in selected_target_label:
-            selected_target = shortest_club_name
-        else:
-            selected_target = selected_target_label
+        # 【TAB 1】 総重量フロー（2次曲線モデル）
+        with tab1:
+            fig1 = px.scatter(
+                plot_df,
+                x="長さ(inch)",
+                y="総重量(g)",
+                text="番手",
+                hover_data=["モデル", "全体重心長(mm)"],
+            )
 
-        target_row = plot_df[plot_df["番手"] == selected_target]
+            if len(plot_df) >= 3:
+                x_data = plot_df["長さ(inch)"].values
+                y_data = plot_df["総重量(g)"].values
+                coefs = np.polyfit(x_data, y_data, 2)
+                x_curve = np.linspace(x_data.min(), x_data.max(), 100)
+                y_curve = np.polyval(coefs, x_curve)
 
-        # 散布図作成
-        fig = px.scatter(
-            plot_df,
-            x="長さ(inch)",
-            y="総重量(g)",
-            text="番手",
-            hover_data=["モデル", "シャフト重量(g)"],
-        )
-
-        # 2点を通る直線（1W と 選択された番手）の計算と表示
-        if not w1_row.empty and not target_row.empty:
-            x1 = w1_row["長さ(inch)"].values[0]
-            y1 = w1_row["総重量(g)"].values[0]
-            x2 = target_row["長さ(inch)"].values[0]
-            y2 = target_row["総重量(g)"].values[0]
-
-            if x1 != x2:
-                # 2点を通る直線の傾き (slope) と切片 (intercept)
-                slope = (y2 - y1) / (x2 - x1)
-                intercept = y1 - slope * x1
-
-                # 全データの範囲をカバーする直線のX座標を設定
-                x_range = np.linspace(
-                    plot_df["長さ(inch)"].min(), plot_df["長さ(inch)"].max(), 100
-                )
-                y_range = slope * x_range + intercept
-
-                # 直線を描画
-                fig.add_trace(
+                fig1.add_trace(
                     go.Scatter(
-                        x=x_range,
-                        y=y_range,
+                        x=x_curve,
+                        y=y_curve,
                         mode="lines",
-                        name=f"基準線 (1W - {selected_target})",
+                        name="理論2次曲線",
                         line=dict(color="red", width=2, dash="dash"),
                     )
                 )
 
-                # 基準となる2つの点をハイライト表示
-                fig.add_trace(
-                    go.Scatter(
-                        x=[x1, x2],
-                        y=[y1, y2],
-                        mode="markers",
-                        name="基準2点",
-                        marker=dict(size=16, color="red", symbol="circle-open"),
-                        showlegend=False,
-                    )
+            fig1.update_xaxes(
+                autorange="reversed", title="クラブの長さ (inch)"
+            )
+            fig1.update_yaxes(title="クラブ総重量 (g)")
+            fig1.update_traces(
+                selector=dict(mode="markers+text"),
+                textposition="top center",
+                marker=dict(size=12, color="#1F497D", symbol="circle"),
+            )
+            fig1.update_layout(
+                margin=dict(l=20, r=20, t=30, b=20), height=450
+            )
+            st.plotly_chart(fig1, use_container_width=True)
+
+        # 【TAB 2】 グリップエンド〜全体重心長フロー
+        with tab2:
+            if "全体重心長(mm)" in plot_df.columns:
+                fig2 = px.scatter(
+                    plot_df,
+                    x="長さ(inch)",
+                    y="全体重心長(mm)",
+                    text="番手",
+                    hover_data=["モデル", "総重量(g)"],
                 )
 
-        # 軸反転設定
-        fig.update_xaxes(autorange="reversed", title="クラブの長さ (inch)")
-        fig.update_yaxes(title="クラブ総重量 (g)")
+                if len(plot_df) >= 3:
+                    x_data = plot_df["長さ(inch)"].values
+                    y_cg = plot_df["全体重心長(mm)"].values
+                    coefs_cg = np.polyfit(x_data, y_cg, 1)  # 1次直線
+                    x_curve_cg = np.linspace(x_data.min(), x_data.max(), 100)
+                    y_curve_cg = np.polyval(coefs_cg, x_curve_cg)
 
-        fig.update_traces(
-            selector=dict(mode="markers+text"),
-            textposition="top center",
-            marker=dict(size=12, color="#1F497D", symbol="circle"),
-            textfont=dict(size=11, family="Arial", color="black"),
-        )
+                    fig2.add_trace(
+                        go.Scatter(
+                            x=x_curve_cg,
+                            y=y_curve_cg,
+                            mode="lines",
+                            name="理想重心直線",
+                            line=dict(color="orange", width=2, dash="dot"),
+                        )
+                    )
 
-        fig.update_layout(
-            margin=dict(l=20, r=20, t=30, b=20),
-            height=500,
-            hovermode="closest",
-            showlegend=True,
-        )
+                fig2.update_xaxes(
+                    autorange="reversed", title="クラブの長さ (inch)"
+                )
+                fig2.update_yaxes(
+                    title="グリップエンド〜全体重心長 (mm) [平衡点]"
+                )
+                fig2.update_traces(
+                    selector=dict(mode="markers+text"),
+                    textposition="top center",
+                    marker=dict(size=12, color="#D9534F", symbol="square"),
+                )
+                fig2.update_layout(
+                    margin=dict(l=20, r=20, t=30, b=20), height=450
+                )
+                st.plotly_chart(fig2, use_container_width=True)
 
-        st.plotly_chart(fig, use_container_width=True)
+        # 【TAB 3】 ヘッドCG垂線交点長
+        with tab3:
+            if "CG垂線交点長(mm)" in plot_df.columns:
+                fig3 = px.scatter(
+                    plot_df,
+                    x="長さ(inch)",
+                    y="CG垂線交点長(mm)",
+                    text="番手",
+                    hover_data=["モデル", "総重量(g)"],
+                )
 
-        # 注記メッセージの表示
+                fig3.update_xaxes(
+                    autorange="reversed", title="クラブの長さ (inch)"
+                )
+                fig3.update_yaxes(
+                    title="グリップエンド〜ヘッドCG垂線交点長 (mm)"
+                )
+                fig3.update_traces(
+                    selector=dict(mode="markers+text"),
+                    textposition="top center",
+                    marker=dict(size=12, color="#2E8B57", symbol="diamond"),
+                )
+                fig3.update_layout(
+                    margin=dict(l=20, r=20, t=30, b=20), height=450
+                )
+                st.plotly_chart(fig3, use_container_width=True)
+
+        # 【TAB 4】 シャフト重量
+        with tab4:
+            if "シャフト重量(g)" in plot_df.columns:
+                fig4 = px.bar(
+                    plot_df,
+                    x="番手",
+                    y="シャフト重量(g)",
+                    text="シャフト重量(g)",
+                    hover_data=["長さ(inch)", "モデル"],
+                    color="シャフト重量(g)",
+                    color_continuous_scale="Blues",
+                )
+                fig4.update_traces(textposition="outside")
+                fig4.update_layout(
+                    margin=dict(l=20, r=20, t=30, b=20),
+                    height=450,
+                    showlegend=False,
+                )
+                st.plotly_chart(fig4, use_container_width=True)
+
         st.info(
             "ℹ️ **注記:** 長さはグリップエンドからヘッドCG heightのシャフト側延長との交点までの長さ。"
             "不明なら1Wはクラブ長より -1.1 inch、FWは -0.8 inch、UTは -0.75 inch、"
