@@ -263,7 +263,7 @@ with col_chart:
             ]
         )
 
-        # 【TAB 1】 選択された2点を通る理想2次曲線モデル
+       # 【TAB 1】 選択された2点を通る理想2次曲線モデル
         with tab1:
             fig1 = px.scatter(
                 plot_df,
@@ -274,19 +274,19 @@ with col_chart:
             )
 
             if not w1_row.empty and not target_row.empty:
-                x1 = w1_row["長さ(inch)"].values[0]
-                y1 = w1_row["総重量(g)"].values[0]
-                x2 = target_row["長さ(inch)"].values[0]
-                y2 = target_row["総重量(g)"].values[0]
+                x1 = w1_row["長さ(inch)"].values[0]  # 1Wの長さ
+                y1 = w1_row["総重量(g)"].values[0]  # 1Wの重量
+                x2 = target_row["長さ(inch)"].values[0]  # 指定番手の長さ
+                y2 = target_row["総重量(g)"].values[0]  # 指定番手の重量
 
                 if x1 != x2:
-                    # 【2点を通る理想2次曲線のフィッティング条件】
-                    # ドライバー(1W)側は長尺で重量変化の傾きが緩やかになる物理特性(dy/dx at x1 = 3.0 g/inch 前後)を設定
-                    slope_at_1w = -3.0
+                    # 1W側（長尺）での重量変化の勾配（通常のX軸増加方向に対する傾き）
+                    # 下に凸の自然なカーブを作るため、1W位置での傾きを +3.0 g/inch に固定
+                    slope_at_1w = 3.0
 
-                    # y = a*x^2 + b*x + c の係数を計算
-                    # 1) 2a*x1 + b = slope_at_1w
-                    # 2) a*(x1^2 - x2^2) + b*(x1 - x2) = y1 - y2
+                    # 2次方程式 y = a*x^2 + b*x + c の係数を解く
+                    # ① dy/dx = 2*a*x1 + b = slope_at_1w
+                    # ② a*(x1^2 - x2^2) + b*(x1 - x2) = y1 - y2
                     a = (y1 - y2 - slope_at_1w * (x1 - x2)) / (
                         (x1 - x2) ** 2
                     )
